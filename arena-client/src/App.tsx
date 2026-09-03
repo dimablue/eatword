@@ -126,6 +126,13 @@ export default function App() {
     if (phase !== "playing") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // The Enter that submits your name on the entry screen bubbles up to
+      // window after this listener is mounted, and would read as an empty
+      // guess. Ignore anything typed into a field, and ignore auto-repeat so
+      // holding Enter to start doesn't fire guesses either.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+      if (e.repeat && e.key === "Enter") return;
       if (death) {
         if (e.key === "Enter") netRef.current?.send({ type: "respawn" });
         return;
