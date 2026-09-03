@@ -8,8 +8,26 @@ let nextId = 1;
 
 // ---------- geometry ----------
 // Server-side source of truth; the client draws from the tile/r it is sent.
+/**
+ * Saturating growth on sqrt(mass). Strictly increasing, so a heavier board is
+ * always a visibly bigger board, but it converges on TILE_MAX instead of
+ * running away. The curve lives on the tile rather than on the radius because
+ * the board is drawn from tiles and the collision circle is derived from the
+ * board — putting it anywhere else would let the drawn board and the hitbox
+ * disagree.
+ */
 function tileSize(mass) {
-  return C.TILE_BASE * Math.pow(mass / C.START_MASS, C.TILE_EXP);
+  const s = Math.sqrt(Math.max(0, mass));
+  return C.TILE_MIN + (C.TILE_MAX - C.TILE_MIN) * (s / (s + C.TILE_K));
+}
+
+/** The ceiling every board approaches; nothing can exceed it. */
+function maxRadius() {
+  const t = C.TILE_MAX;
+  const gap = t * C.GAP_RATIO;
+  const w = C.COLS * t + (C.COLS - 1) * gap;
+  const h = C.ROWS * t + (C.ROWS - 1) * gap;
+  return C.RADIUS_RATIO * Math.hypot(w, h);
 }
 function boardSize(mass) {
   const t = tileSize(mass);
@@ -353,6 +371,7 @@ module.exports = {
   tileSize,
   boardSize,
   radius,
+  maxRadius,
   speed,
   C,
 };

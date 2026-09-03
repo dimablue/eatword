@@ -10,9 +10,14 @@ module.exports = {
   ROWS: 6,
   COLS: 5,
 
-  // A board's tile size grows sublinearly with mass so big players stay on screen.
-  TILE_BASE: 30,
-  TILE_EXP: 0.35,
+  // Board size saturates with mass: fast growth while you are small, tapering to
+  // a ceiling it approaches but never reaches, so no board can swallow the
+  // viewport. Mass itself stays unbounded — only the drawing of it is capped.
+  //   tile = TILE_MIN + (TILE_MAX - TILE_MIN) * s / (s + TILE_K),  s = sqrt(mass)
+  TILE_MIN: 16,
+  TILE_MAX: 84,
+  // sqrt(mass) at which a board is halfway from TILE_MIN to TILE_MAX (mass ~1490).
+  TILE_K: 38.6,
   GAP_RATIO: 0.14,
 
   // Collision circle as a fraction of the board's half-diagonal.
