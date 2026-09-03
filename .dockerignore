@@ -1,0 +1,9 @@
+node_modules
+arena-client/node_modules
+arena-client/dist
+.git
+.gitignore
+.DS_Store
+.env
+*.log
+npm-debug.log*

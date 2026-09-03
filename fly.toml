@@ -1,0 +1,23 @@
+# Fly.io config. Set `app` to a globally-unique name before the first deploy,
+# and pick a region near your players (`fly platform regions` lists them).
+app = "wordrace"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8080"
+  ARENA_BOTS = "5"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # The arena is one shared world held in memory, so never run two machines.
+  min_machines_running = 0
+  max_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

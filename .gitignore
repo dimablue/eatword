@@ -1,0 +1,7 @@
+node_modules/
+arena-client/dist/
+.DS_Store
+.env
+*.log
+npm-debug.log*
+gamedesign.md
