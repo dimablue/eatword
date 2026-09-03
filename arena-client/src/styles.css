@@ -7,6 +7,7 @@
   --green: #6aaa64;
   --yellow: #c9b458;
   --gray: #787c7e;
+  --red: #b23b34;
   --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
@@ -78,13 +79,7 @@ input:focus {
   font-size: 34px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin: 0;
-}
-
-.tagline {
-  color: var(--muted);
-  font-size: 14px;
-  margin: 0 0 34px;
+  margin: 0 0 38px;
 }
 
 .entry-row {
@@ -213,9 +208,16 @@ input:focus {
   background: var(--gray);
 }
 
+/* Fixed-height slot so the reveal can't shove the grid around. */
+.slot {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .message {
   margin: 0;
-  height: 18px;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -226,14 +228,76 @@ input:focus {
   opacity: 1;
 }
 
+/* End-of-puzzle reveal: the answer, then what it was worth. */
+.reveal {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  animation: reveal-in 180ms ease-out;
+}
+
+.reveal .word {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  /* letter-spacing pads the right edge; pull it back so the pair reads centred */
+  margin-right: -0.2em;
+}
+
+.reveal .points {
+  font-size: 21px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.reveal .points.up {
+  color: var(--green);
+}
+
+.reveal .points.zero {
+  color: var(--red);
+}
+
+@keyframes reveal-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .hint {
   margin: 0;
+  height: 16px;
   font-size: 12px;
   color: var(--muted);
 }
 
 .shake {
   animation: shake 0.35s;
+}
+
+/* Solve: a quick swell. Miss: the same beat, sideways. */
+.grid.pop {
+  animation: pop 380ms ease-out;
+}
+
+.grid.shake {
+  animation: shake 380ms;
+}
+
+@keyframes pop {
+  0%   { transform: scale(1); }
+  38%  { transform: scale(1.055); }
+  100% { transform: scale(1); }
+}
+
+/* The next puzzle fades up rather than snapping in. */
+.grid {
+  animation: grid-in 260ms ease-out;
+}
+
+@keyframes grid-in {
+  from { opacity: 0.35; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes shake {

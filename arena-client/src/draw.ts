@@ -123,9 +123,11 @@ export function render(
     myId: string | null;
     /** Height of the fixed Wordle panel; the camera focuses above it. */
     panel: number;
+    /** End-of-puzzle flourish applied to your own board only. */
+    selfFx: { scale: number; shakeX: number };
   }
 ) {
-  const { vw, vh, dpr, cam, world, players, myId, panel } = opts;
+  const { vw, vh, dpr, cam, world, players, myId, panel, selfFx } = opts;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = PAPER;
@@ -140,7 +142,21 @@ export function render(
 
   // Smallest first, so the board about to eat you is drawn on top.
   const ordered = [...players].sort((a, b) => a.mass - b.mass);
-  for (const p of ordered) drawBoard(ctx, p, p.id === myId, cam.zoom);
+  const hasFx = selfFx.scale !== 1 || selfFx.shakeX !== 0;
+  for (const p of ordered) {
+    const isMe = p.id === myId;
+    if (isMe && hasFx) {
+      // Pulse/shake about the board's own centre so it stays put on screen.
+      ctx.save();
+      ctx.translate(p.x + selfFx.shakeX, p.y);
+      ctx.scale(selfFx.scale, selfFx.scale);
+      ctx.translate(-p.x, -p.y);
+      drawBoard(ctx, p, isMe, cam.zoom);
+      ctx.restore();
+    } else {
+      drawBoard(ctx, p, isMe, cam.zoom);
+    }
+  }
 
   ctx.restore();
 

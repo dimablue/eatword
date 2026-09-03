@@ -22,6 +22,8 @@ export interface You {
   alive: boolean;
   mass: number;
   rows: Row[];
+  /** True while the finished board is held up for the reveal. */
+  done: boolean;
   queued: number;
   speed: number;
 }
@@ -32,9 +34,15 @@ export interface Leader {
   mass: number;
 }
 
+/** One end-of-puzzle result. `points` is 0 on a miss, and a miss costs nothing. */
+export interface PuzzleResult {
+  solved: boolean;
+  word: string;
+  points: number;
+}
+
 export type GameEvent =
-  | { kind: "solved"; word: string; gain: number }
-  | { kind: "failed"; word: string; loss: number }
+  | ({ kind: "result" } & PuzzleResult)
   | { kind: "ate"; name: string; mass: number }
   | { kind: "eaten"; by: string; mass: number }
   | { kind: "stole"; from: string; guesses: number; active: boolean };
@@ -45,6 +53,8 @@ export interface Welcome {
   world: number;
   rows: number;
   cols: number;
+  /** How long the server holds a finished board before loading the next one. */
+  holdMs: number;
 }
 
 export interface StateMsg {

@@ -9,23 +9,34 @@ export interface Snapshot {
   world: number;
 }
 
+/** A one-shot flourish on your own board when a puzzle ends. */
+export interface Fx {
+  kind: "pop" | "shake";
+  at: number;
+}
+
 interface Props {
   snapshotRef: React.MutableRefObject<Snapshot>;
   /** Height of the Wordle panel, so the camera can keep your board clear of it. */
   panel: number;
+  fxRef: React.MutableRefObject<Fx | null>;
   onInput: (dx: number, dy: number, w: number, h: number, zoom: number) => void;
 }
 
 interface Drawn extends PublicPlayer {
   dx: number;
   dy: number;
+  /** Eased tile size, so growing reads as growth rather than a jump. */
+  dtile: number;
 }
+
+const FX_MS = 420;
 
 /**
  * The arena canvas. State arrives at 15Hz; positions are eased toward their
  * targets every frame so movement reads as continuous.
  */
-export default function Arena({ snapshotRef, panel, onInput }: Props) {
+export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointer = useRef({ x: 0, y: 0, active: false });
   const drawn = useRef(new Map<string, Drawn>());
@@ -55,17 +66,20 @@ export default function Arena({ snapshotRef, panel, onInput }: Props) {
       const vw = canvas.clientWidth;
       const vh = canvas.clientHeight;
 
-      // Ease every visible board toward its last known server position.
+      // Ease every visible board toward its last known server position and size.
       const k = 1 - Math.exp(-14 * dt);
+      const kTile = 1 - Math.exp(-6 * dt);
       const seen = new Set<string>();
       for (const p of snap.players) {
         seen.add(p.id);
         const d = drawn.current.get(p.id);
-        if (!d) drawn.current.set(p.id, { ...p, dx: p.x, dy: p.y });
+        if (!d) drawn.current.set(p.id, { ...p, dx: p.x, dy: p.y, dtile: p.tile });
         else {
+          const prevTile = d.dtile;
           Object.assign(d, p);
           d.dx += (p.x - d.dx) * k;
           d.dy += (p.y - d.dy) * k;
+          d.dtile = prevTile + (p.tile - prevTile) * kTile;
         }
       }
       for (const id of [...drawn.current.keys()]) if (!seen.has(id)) drawn.current.delete(id);
@@ -95,7 +109,23 @@ export default function Arena({ snapshotRef, panel, onInput }: Props) {
         }
       }
 
-      const players = [...drawn.current.values()].map((d) => ({ ...d, x: d.dx, y: d.dy }));
+      // A solve swells the board, a miss rattles it. Both decay to nothing.
+      let fxScale = 1;
+      let fxShake = 0;
+      const fx = fxRef.current;
+      if (fx) {
+        const t = (now - fx.at) / FX_MS;
+        if (t >= 1) fxRef.current = null;
+        else if (fx.kind === "pop") fxScale = 1 + 0.16 * Math.sin(Math.PI * t);
+        else fxShake = Math.sin(t * Math.PI * 8) * 14 * (1 - t);
+      }
+
+      const players = [...drawn.current.values()].map((d) => ({
+        ...d,
+        x: d.dx,
+        y: d.dy,
+        tile: d.dtile,
+      }));
       render(ctx, {
         vw,
         vh,
@@ -105,6 +135,7 @@ export default function Arena({ snapshotRef, panel, onInput }: Props) {
         players,
         myId: snap.myId,
         panel: panelRef.current,
+        selfFx: { scale: fxScale, shakeX: fxShake },
       });
 
       raf = requestAnimationFrame(frame);
@@ -115,7 +146,7 @@ export default function Arena({ snapshotRef, panel, onInput }: Props) {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [snapshotRef]);
+  }, [snapshotRef, fxRef]);
 
   // Movement is sent on its own cadence, decoupled from the render loop.
   useEffect(() => {

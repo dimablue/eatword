@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Arena, { type Snapshot } from "./Arena";
+import Arena, { type Fx, type Snapshot } from "./Arena";
 import Leaderboard from "./Leaderboard";
 import MyWordle from "./MyWordle";
 import { Net } from "./net";
-import type { GameEvent, Leader, ServerMsg, You } from "./types";
+import type { GameEvent, Leader, PuzzleResult, ServerMsg, You } from "./types";
 
 /** Matches the .mine block in styles.css; the camera focuses above it. */
 const PANEL_HEIGHT = 280;
@@ -21,12 +21,18 @@ export default function App() {
   const [death, setDeath] = useState<{ by: string; mass: number } | null>(null);
   const [message, setMessage] = useState("");
   const [shake, setShake] = useState(0);
+  const [result, setResult] = useState<PuzzleResult | null>(null);
+  const [puzzleKey, setPuzzleKey] = useState(0);
 
   const guessRef = useRef("");
   const [guess, setGuess] = useState("");
   const netRef = useRef<Net | null>(null);
   const feedId = useRef(0);
   const snapshotRef = useRef<Snapshot>({ players: [], you: null, myId: null, world: 4200 });
+  const fxRef = useRef<Fx | null>(null);
+  const holdMs = useRef(850);
+  const resultTimer = useRef(0);
+  const wasDone = useRef(false);
 
   const flash = useCallback((text: string) => {
     setMessage(text);
@@ -42,11 +48,18 @@ export default function App() {
   const handleEvent = useCallback(
     (e: GameEvent) => {
       switch (e.kind) {
-        case "solved":
-          push(`solved ${e.word.toUpperCase()} · +${e.gain}`);
-          break;
-        case "failed":
-          push(`missed ${e.word.toUpperCase()} · −${e.loss}`);
+        case "result":
+          // Reveal the word, show the score, and kick off the board flourish.
+          // Anything typed mid-reveal is dropped, so clear the buffer now.
+          guessRef.current = "";
+          setGuess("");
+          setMessage("");
+          setResult({ solved: e.solved, word: e.word, points: e.points });
+          fxRef.current = { kind: e.solved ? "pop" : "shake", at: performance.now() };
+          // The server's puzzle swap is what really ends the reveal (see below);
+          // this only rescues the UI if that state update never arrives.
+          window.clearTimeout(resultTimer.current);
+          resultTimer.current = window.setTimeout(() => setResult(null), holdMs.current + 600);
           break;
         case "ate":
           push(`ate ${e.name} · +${Math.round(e.mass * 0.7)}`);
@@ -71,6 +84,7 @@ export default function App() {
       if (m.type === "welcome") {
         snapshotRef.current.myId = m.id;
         snapshotRef.current.world = m.world;
+        holdMs.current = m.holdMs;
         return;
       }
       if (m.type === "reject") {
@@ -84,8 +98,16 @@ export default function App() {
       setYou(m.you);
       setLeaders(m.leaders);
       if (m.you.alive) setDeath(null);
-      // A stolen or finished puzzle resets what you were typing.
-      if (m.you.rows.length === 0 && guessRef.current.length === 0) setGuess("");
+
+      // The server drives the swap, so replay the grid's entrance off its state
+      // rather than a local timer — the two can never drift apart.
+      if (wasDone.current && !m.you.done) {
+        setPuzzleKey((n) => n + 1);
+        setResult(null);
+        window.clearTimeout(resultTimer.current);
+      }
+      wasDone.current = m.you.done;
+
       for (const e of m.events) handleEvent(e);
     },
     [flash, handleEvent]
@@ -108,6 +130,8 @@ export default function App() {
         if (e.key === "Enter") netRef.current?.send({ type: "respawn" });
         return;
       }
+      // The reveal is brief and non-blocking; movement continues, typing waits.
+      if (result) return;
       if (e.key === "Enter") {
         if (guessRef.current.length === 5) {
           netRef.current?.send({ type: "guess", guess: guessRef.current });
@@ -133,7 +157,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, death]);
+  }, [phase, death, result]);
 
   const sendInput = useCallback((dx: number, dy: number, w: number, h: number, zoom: number) => {
     netRef.current?.send({ type: "input", dx, dy, w, h, zoom });
@@ -143,7 +167,6 @@ export default function App() {
     return (
       <main className="entry">
         <h1>Wordle Agar</h1>
-        <p className="tagline">Solve words to grow. Eat smaller boards. Steal their puzzle.</p>
         <div className="entry-row">
           <input
             autoFocus
@@ -161,7 +184,7 @@ export default function App() {
 
   return (
     <div className="game">
-      <Arena snapshotRef={snapshotRef} panel={PANEL_HEIGHT} onInput={sendInput} />
+      <Arena snapshotRef={snapshotRef} panel={PANEL_HEIGHT} fxRef={fxRef} onInput={sendInput} />
 
       <Leaderboard leaders={leaders} myId={snapshotRef.current.myId} />
 
@@ -177,6 +200,8 @@ export default function App() {
         queued={you?.queued ?? 0}
         message={message}
         shake={shake}
+        result={result}
+        puzzleKey={puzzleKey}
       />
 
       {status === "closed" && (

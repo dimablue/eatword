@@ -59,7 +59,14 @@ wss.on("connection", (ws) => {
       const p = world.add(name, false);
       ws.playerId = p.id;
       sockets.set(p.id, ws);
-      send(ws, { type: "welcome", id: p.id, world: C.WORLD_SIZE, rows: C.ROWS, cols: C.COLS });
+      send(ws, {
+        type: "welcome",
+        id: p.id,
+        world: C.WORLD_SIZE,
+        rows: C.ROWS,
+        cols: C.COLS,
+        holdMs: C.RESULT_HOLD_MS,
+      });
       return;
     }
 

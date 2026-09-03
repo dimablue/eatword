@@ -67,6 +67,7 @@ function makePlayer(name, isBot) {
     puzzle: newPuzzle(),
     queue: [],
     events: [],
+    resolveAt: 0,
     // bot-only
     waypoint: null,
     nextGuessAt: 0,
@@ -141,6 +142,7 @@ class World {
     p.puzzle = newPuzzle();
     p.queue = [];
     p.dx = p.dy = 0;
+    p.resolveAt = 0;
     this.placeSafely(p);
   }
 
@@ -152,7 +154,8 @@ class World {
     if (guess.length !== C.WORD_LEN) return { error: "Not enough letters" };
     if (!isValidGuess(guess)) return { error: "Not in word list" };
     const puz = p.puzzle;
-    if (puz.done) return { error: "Puzzle finished" };
+    // Mid-reveal: swallow the keystroke rather than flashing an error at them.
+    if (puz.done) return { held: true };
     if (puz.rows.some((r) => r.guess === guess)) return { error: "Already guessed" };
 
     const colors = scoreGuess(guess, puz.answer);
@@ -161,33 +164,41 @@ class World {
     if (colors.every((c) => c === "green")) {
       puz.done = true;
       puz.solved = true;
-      const spare = C.MAX_GUESSES - puz.rows.length;
-      const gain = Math.max(C.SOLVE_MIN, p.mass * C.SOLVE_SHARE) + spare * C.SOLVE_PER_SPARE_GUESS;
-      p.mass += gain;
-      p.events.push({ kind: "solved", word: puz.answer, gain: Math.round(gain) });
-      this.nextPuzzle(p);
+      // Earlier solves pay more: 1 guess -> +6, down to 6 guesses -> +1.
+      const points = C.SOLVE_POINTS[puz.rows.length - 1] ?? 1;
+      p.mass += points;
+      p.events.push({ kind: "result", solved: true, word: puz.answer, points });
+      this.holdResult(p);
       return { ok: true };
     }
 
     if (puz.rows.length >= C.MAX_GUESSES) {
+      // Out of guesses: reveal the answer, award nothing, take nothing away.
       puz.done = true;
-      const before = p.mass;
-      p.mass = Math.max(C.MIN_MASS, p.mass * C.FAIL_KEEP);
-      p.events.push({ kind: "failed", word: puz.answer, loss: Math.round(before - p.mass) });
-      this.nextPuzzle(p);
+      p.events.push({ kind: "result", solved: false, word: puz.answer, points: 0 });
+      this.holdResult(p);
     }
     return { ok: true };
   }
 
+  /** Freeze the finished board so the client can play its reveal sequence. */
+  holdResult(p) {
+    p.resolveAt = Date.now() + C.RESULT_HOLD_MS;
+  }
+
   // Pull the next stolen puzzle if one is waiting, otherwise a fresh word.
   nextPuzzle(p) {
+    p.resolveAt = 0;
     p.puzzle = p.queue.length ? p.queue.shift() : newPuzzle();
   }
 
   // ---------- simulation ----------
   tick(dt) {
+    const now = Date.now();
     for (const p of this.players.values()) {
       if (!p.alive) continue;
+      // The reveal has run its course — swap in the next puzzle.
+      if (p.resolveAt && now >= p.resolveAt) this.nextPuzzle(p);
       const v = speed(p.mass);
       p.x += p.dx * v * dt;
       p.y += p.dy * v * dt;
@@ -228,6 +239,7 @@ class World {
         if (eater.queue.length < C.QUEUE_MAX) eater.queue.push(stolen);
       } else {
         eater.puzzle = stolen;
+        eater.resolveAt = 0;
         stoleActive = true;
       }
       eater.events.push({
@@ -268,6 +280,7 @@ class World {
       alive: p.alive,
       mass: Math.round(p.mass),
       rows: p.puzzle ? p.puzzle.rows : [],
+      done: !!(p.puzzle && p.puzzle.done),
       queued: p.queue.length,
       speed: Math.round(speed(p.mass)),
     };

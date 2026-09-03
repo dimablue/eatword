@@ -3,7 +3,6 @@
 module.exports = {
   WORLD_SIZE: 4200,
   START_MASS: 100,
-  MIN_MASS: 60,
 
   MAX_GUESSES: 6,
   WORD_LEN: 5,
@@ -32,11 +31,13 @@ module.exports = {
   EAT_OVERLAP: 0.4,
   EAT_GAIN: 0.7,
 
-  // Solving pays a share of your current mass, plus a bonus for finishing early.
-  SOLVE_SHARE: 0.22,
-  SOLVE_MIN: 45,
-  SOLVE_PER_SPARE_GUESS: 10,
-  FAIL_KEEP: 0.85,
+  // Points for a solve, indexed by guesses used: 1 guess -> +6, ... 6 guesses -> +1.
+  SOLVE_POINTS: [6, 5, 4, 3, 2, 1],
+  // Failing costs nothing at all — no mass, no points, no size change.
+
+  // How long a finished board stays up, revealing the word, before the next
+  // puzzle loads. Held on the server so onlookers see your final board too.
+  RESULT_HOLD_MS: 850,
 
   // Large players bleed mass so leads decay.
   DECAY_ABOVE: 200,
