@@ -14,6 +14,11 @@ const ROWS = 6;
 const COLS = 5;
 const GAP_RATIO = 0.14;
 
+/** Mirrors --font in styles.css. Canvas takes no CSS variables, so the two are
+ *  kept in step by hand; letting them drift sets the arena and your own board
+ *  in different typefaces. */
+const FONT = '"Libre Franklin", "Franklin Gothic Medium", "Franklin Gothic", "Helvetica Neue", Arial, sans-serif';
+
 export interface Camera {
   x: number;
   y: number;
@@ -39,7 +44,7 @@ export function zoomForMass(mass: number) {
   return Math.max(0.28, Math.min(0.75, z));
 }
 
-/** Faint world edges and a sparse grid — enough to feel motion, nothing more. */
+/** Faint world edges and a sparse grid, enough to feel motion and nothing more. */
 function drawField(ctx: CanvasRenderingContext2D, cam: Camera, vw: number, vh: number, world: number) {
   const step = 400;
   ctx.strokeStyle = "#efefeb";
@@ -68,12 +73,17 @@ function drawField(ctx: CanvasRenderingContext2D, cam: Camera, vw: number, vh: n
 
 /**
  * One player: a Wordle grid with their name and mass in small text above it.
- * No card, bubble or badge around it — the grid is the character.
+ * No card, bubble or badge around it; the grid is the character.
  */
 function drawBoard(ctx: CanvasRenderingContext2D, p: PublicPlayer, isMe: boolean, zoom: number) {
   const { gap, w, h } = boardDims(p.tile);
   const left = p.x - w / 2;
   const top = p.y - h / 2;
+  // Letters arrive only for a board we are allowed to read, which today means
+  // the leader while you are spectating. Everyone else is colours, as ever.
+  // The half-typed word sits on the row after the last submitted guess.
+  const draftRow = p.guesses ? p.guesses.length : -1;
+  const glyph = p.tile * 0.56;
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -90,6 +100,15 @@ function drawBoard(ctx: CanvasRenderingContext2D, p: PublicPlayer, isMe: boolean
         ctx.lineWidth = Math.max(1 / zoom, p.tile * 0.05);
         ctx.strokeRect(x, y, p.tile, p.tile);
       }
+
+      const ch = p.guesses?.[r]?.[c] ?? (r === draftRow ? p.draft?.[c] : undefined);
+      if (ch) {
+        ctx.fillStyle = color ? "#ffffff" : INK;
+        ctx.font = `700 ${glyph}px ${FONT}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(ch.toUpperCase(), x + p.tile / 2, y + p.tile / 2 + p.tile * 0.03);
+      }
     }
   }
 
@@ -104,10 +123,10 @@ function drawBoard(ctx: CanvasRenderingContext2D, p: PublicPlayer, isMe: boolean
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = INK;
-  ctx.font = `600 ${label}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.font = `600 ${label}px ${FONT}`;
   ctx.fillText(p.name, p.x, top - label * 1.15 - gap);
   ctx.fillStyle = MUTED;
-  ctx.font = `400 ${label * 0.85}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.font = `400 ${label * 0.85}px ${FONT}`;
   ctx.fillText(String(p.mass), p.x, top - gap * 2 - 2 / zoom);
 }
 
@@ -161,7 +180,7 @@ export function render(
   ctx.restore();
 
   // Boards drifting beneath the Wordle panel would read as debris. Fade the
-  // arena into the paper at the bottom edge — no panel, no border, just falloff.
+  // arena into the paper at the bottom edge: no panel, no border, just falloff.
   const fade = Math.min(panel * 0.55, vh * 0.25);
   const grad = ctx.createLinearGradient(0, vh - fade, 0, vh);
   grad.addColorStop(0, "rgba(246, 246, 244, 0)");

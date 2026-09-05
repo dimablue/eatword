@@ -1,4 +1,31 @@
 /* Wordle turned into an .io game: flat, sparse, off-white. No panels, no chrome. */
+/* Libre Franklin, self-hosted. Franklin Gothic ships on Windows but not macOS,
+   and this is its open revival. Served from our own origin rather than Google
+   Fonts so the game renders correctly with no internet at all: on a LAN, on a
+   plane, or the first time anyone loads it before the CDN answers.
+
+   One file per subset covers every weight, because Google serves this family as
+   a variable font: request 400, 600 and 700 and all three point at the same
+   URL. Hence the 100-900 range here rather than three separate faces. Refresh
+   the files from the css2 API if the family is ever updated. */
+@font-face {
+  font-family: "Libre Franklin";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/libre-franklin-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Libre Franklin";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/libre-franklin-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   --paper: #f6f6f4;
   --ink: #1a1a1b;
@@ -8,7 +35,17 @@
   --yellow: #c9b458;
   --gray: #787c7e;
   --red: #b23b34;
-  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* Libre Franklin first so every machine gets the same face; the real
+     Franklin Gothic names behind it for Windows, then a plain sans fallback.
+     Keep this in step with FONT in draw.ts, or the boards in the arena and the
+     board under your hands will be set in different typefaces.
+
+     Georgia was tried and dropped: it renders old-style figures, so mass reads
+     as lowercase letters, and it has no `lnum` or `tnum` feature to turn that
+     off. Mass is the number you read under pressure to decide whether to eat
+     or run, so it needs lining digits. */
+  --font: "Libre Franklin", "Franklin Gothic Medium", "Franklin Gothic",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
 * {
@@ -79,13 +116,59 @@ input:focus {
   font-size: 34px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin: 0 0 38px;
+  /* The pitch now carries the gap the title used to hold open. No tracking
+     compensation here, unlike the inline .word spans: a block-level heading's
+     box already ends at the last glyph's edge, so subtracting the trailing
+     letter-space would push the title right of the axis rather than onto it. */
+  margin: 0 0 20px;
 }
 
+/* Measure in ch so the rag holds as the viewport moves, capped in vw so a
+   phone never overflows it. 60ch is measured, not guessed: this copy breaks to
+   three lines within 4 characters of each other there, where 48-56ch gives four
+   lines with a 12-character bulge in the middle. Re-measure if the copy changes
+   The good values are narrow and not adjacent to the bad ones. */
+.entry .pitch {
+  max-width: min(60ch, 86vw);
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.entry .controls {
+  max-width: 86vw;
+  margin: 0 0 30px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+/* Side by side, bottoms aligned so the field's underline and the button's
+   lower border sit on one line. Note this centres the pair, not the field: the
+   field lands (gap + button width) / 2 ≈ 50px left of the axis the title and
+   pitch share. That offset is inherent to the arrangement and does not depend
+   on the field's width, so narrowing the field will not pull it back. Stack the
+   row (flex-direction: column) if the lean ever needs to go. */
 .entry-row {
   display: flex;
   gap: 16px;
   align-items: flex-end;
+}
+
+/* Always in the layout, so a refusal cannot shove the form up the page. */
+.entry-error {
+  margin: 14px 0 0;
+  max-width: 86vw;
+  font-size: 13px;
+  color: var(--red);
+  opacity: 0;
+}
+
+.entry-error.on {
+  opacity: 1;
 }
 
 /* ---------- game ---------- */
@@ -133,20 +216,87 @@ input:focus {
   font-weight: 600;
 }
 
-.feed {
+/* ---------- notice ---------- */
+/* Top-left, the one corner nothing else uses: the leaderboard is top-right and
+   your board sits bottom-centre, which is what buried this when it lived in the
+   bottom-left feed. It carries a background because unlike everything else on
+   screen it is prose, and prose over a moving arena needs something to sit on. */
+.notice {
   position: absolute;
+  top: 18px;
   left: 24px;
-  bottom: 20px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  max-width: 290px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--line);
   font-size: 13px;
+  line-height: 1.5;
   color: var(--muted);
-  pointer-events: none;
+  animation: notice-life var(--life, 7000ms) ease-out forwards;
 }
 
-.feed li {
-  line-height: 1.8;
+.notice p {
+  margin: 0;
+}
+
+/* A sticky notice describes a state you are still in, so it only arrives.
+   there is no timer to fade it back out again. */
+.notice.sticky {
+  animation: notice-in 220ms ease-out;
+}
+
+@keyframes notice-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Fades in, holds, fades out on --life, the same clock the timer that removes
+   it runs on, so the card is already invisible when React drops it. */
+@keyframes notice-life {
+  0%   { opacity: 0; transform: translateY(-4px); }
+  5%   { opacity: 1; transform: translateY(0); }
+  90%  { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-2px); }
+}
+
+/* Marks it as information rather than something that just happened to you. */
+.notice .badge {
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  line-height: 1;
+}
+
+/* Undoes the global button rule, which is sized and boxed for Play/Respawn. */
+.notice .dismiss {
+  margin: -2px -2px 0 0;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.notice .dismiss:hover {
+  background: none;
+  color: var(--ink);
 }
 
 /* ---------- your puzzle ---------- */
@@ -158,28 +308,28 @@ input:focus {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   pointer-events: none;
 }
 
 .grid {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .row {
   display: flex;
-  gap: 4px;
+  gap: 3px;
 }
 
 .tile {
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   text-transform: uppercase;
   background: #fff;
@@ -208,9 +358,70 @@ input:focus {
   background: var(--gray);
 }
 
+/* ---------- letter tracker ---------- */
+/* Sized off the grid the way Wordle's is: wider than the board, but short
+   enough that it reads as a readout rather than a second control surface. */
+.keyboard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+
+.krow {
+  display: flex;
+  gap: 2px;
+}
+
+.key {
+  width: 19px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: var(--line);
+  color: var(--ink);
+  border-radius: 2px;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+
+/* Same three colours as the tiles, so a key and a tile never disagree. */
+.key.green,
+.key.yellow,
+.key.gray {
+  color: #fff;
+}
+
+.key.green {
+  background: var(--green);
+}
+.key.yellow {
+  background: var(--yellow);
+}
+.key.gray {
+  background: var(--gray);
+}
+
+/* Lunge readiness, sized to the tracker above it. Faint while the burst
+   recharges, and it darkens the moment spending mass will actually do
+   something. Deliberately not a meter, because ready or not is the whole question. */
+.charge {
+  width: 100%;
+  height: 2px;
+  background: var(--line);
+  transition: background-color 160ms ease-out;
+}
+
+.charge.ready {
+  background: var(--muted);
+}
+
 /* Fixed-height slot so the reveal can't shove the grid around. */
 .slot {
-  height: 34px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -238,7 +449,7 @@ input:focus {
 }
 
 .reveal .word {
-  font-size: 25px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.2em;
   /* letter-spacing pads the right edge; pull it back so the pair reads centred */
@@ -246,7 +457,7 @@ input:focus {
 }
 
 .reveal .points {
-  font-size: 21px;
+  font-size: 17px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -264,11 +475,105 @@ input:focus {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.hint {
-  margin: 0;
-  height: 16px;
-  font-size: 12px;
-  color: var(--muted);
+/* ---------- eat handoff ---------- */
+/* An eat ends your board and hands you the one you took, and both halves have
+   to land inside a fight. The old board pulses green, states its answer across
+   its own face, and leaves; the inherited board fades up in its place. Every
+   duration here is driven by --hold, which is the server's HANDOFF_HOLD_MS, so
+   the board finishes leaving on the packet that swaps it, never before. */
+.stack {
+  position: relative;
+  display: flex;
+}
+
+.grid.handoff {
+  animation: handoff-out var(--hold, 700ms) ease-out forwards;
+}
+
+/* Success, then a plateau, then exit, as one animation, because they are one
+   gesture. The pop stays early in percentage terms so it reads as a snap
+   however long --hold is, and the middle is deliberately flat: that stretch is
+   the only part of the hold the answer is actually readable in. */
+@keyframes handoff-out {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(106, 170, 100, 0);
+    opacity: 1;
+  }
+  18% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 6px rgba(106, 170, 100, 0.42);
+    opacity: 1;
+  }
+  45% {
+    transform: scale(1.02);
+    box-shadow: 0 0 0 3px rgba(106, 170, 100, 0.2);
+    opacity: 1;
+  }
+  78% {
+    transform: scale(1.01);
+    box-shadow: 0 0 0 2px rgba(106, 170, 100, 0.14);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.97) translateY(-8px);
+    box-shadow: 0 0 0 0 rgba(106, 170, 100, 0);
+    opacity: 0;
+  }
+}
+
+/* The answer sits over the board it belongs to, on enough paper to stay
+   readable across six rows of coloured tiles. */
+.handoff-answer {
+  position: absolute;
+  inset: -2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  /* Nearly opaque: the label below is small, and tile borders showing through
+     it are exactly the noise that makes it unreadable in a 450ms glance. */
+  background: rgba(246, 246, 244, 0.96);
+  pointer-events: none;
+  animation: handoff-answer var(--hold, 700ms) ease-out forwards;
+}
+
+/* Muted, and above the word rather than beside it: this pair is the board you
+   just lost, and it has to group apart from what you gained. */
+.handoff-answer .label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.6;
+  margin-right: -0.12em;
+}
+
+.handoff-answer .word {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  /* letter-spacing pads the right edge; pull it back so the word reads centred */
+  margin-right: -0.18em;
+}
+
+/* Set apart from the word so it reads as the kill's reward, not the word's. */
+.handoff-answer .points {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--green);
+}
+
+/* In fast, out late: everything between is reading time. */
+@keyframes handoff-answer {
+  0%   { opacity: 0; transform: scale(0.94); }
+  14%  { opacity: 1; transform: scale(1); }
+  80%  { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.02); }
 }
 
 .shake {
@@ -324,10 +629,48 @@ input:focus {
   font-size: 17px;
 }
 
+/* Tighter than the disconnect curtain: the headline, the board you died on and
+   its answer read as one block, so the Respawn button stays the thing your eye
+   lands on and the whole screen can be understood without scanning it. */
+.curtain.death {
+  gap: 13px;
+}
+
+.curtain .headline {
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.curtain .by {
+  margin-top: -7px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.curtain .answer {
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.curtain .answer strong {
+  color: var(--ink);
+  letter-spacing: 0.17em;
+}
+
 @media (max-width: 640px) {
   .tile {
-    width: 28px;
-    height: 28px;
-    font-size: 15px;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+
+  .key {
+    width: 16px;
+    height: 19px;
+    font-size: 9px;
   }
 }

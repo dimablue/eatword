@@ -1,18 +1,22 @@
 {
-  "name": "wordrace",
+  "name": "eatword",
   "version": "0.1.0",
   "private": true,
-  "description": "Wordle Agar — a multiplayer arena where players are Wordle boards",
+  "description": "Eatword: a multiplayer arena where players are Wordle boards",
   "main": "arena-server.js",
   "scripts": {
-    "setup": "npm --prefix arena-client install",
+    "setup": "npm --prefix arena-client install --include=dev",
     "build": "npm --prefix arena-client run build",
     "start": "node arena-server.js",
     "dev": "npm --prefix arena-client run dev",
-    "postinstall": "npm --prefix arena-client install"
+    "spar": "node arena/spar.js",
+    "postinstall": "npm --prefix arena-client install --include=dev"
   },
   "dependencies": {
     "express": "^4.19.2",
     "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

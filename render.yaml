@@ -1,0 +1,31 @@
+# Render Blueprint for Eatword (the arena in arena-server.js).
+#
+# The repo also holds the original two-player CoWordle in server.js, which the
+# Dockerfile and fly.toml at the root deploy. This file deliberately does not
+# use them: runtime "node" tells Render to ignore the Dockerfile and run the
+# arena instead.
+services:
+  - type: web
+    name: eatword
+    runtime: node
+    # Starter, not free: a free instance sleeps after ~15 minutes idle, and all
+    # arena state is in memory, so every sleep would wipe the leaderboard and
+    # reset the bots. Paid keeps the world running between visitors.
+    plan: starter
+    # arena-client/dist is gitignored, so the client is built here. Root deps
+    # first (express, ws), then the client's, then the bundle.
+    buildCommand: npm install && npm run setup && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Render sets NODE_ENV=production, which would otherwise make npm skip
+      # the devDependencies vite and typescript live in.
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
+      # Belt and braces: constants.js already disables the dev spawn when
+      # NODE_ENV is production, and this states it outright.
+      - key: ARENA_DEV_NAME
+        value: ""
+      - key: ARENA_BOTS
+        value: "8"
