@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import Grid from "./Grid";
+import Joystick, { type Stick } from "./Joystick";
 import Keyboard from "./Keyboard";
 import type { PuzzleResult, Row } from "./types";
 
@@ -17,6 +18,16 @@ interface Props {
   handoffMs: number;
   /** False while the lunge recharges. */
   lungeReady: boolean;
+  /** Touch controls: the keyboard becomes the way to type, and a button takes
+   *  the place of the space bar. Absent on desktop. */
+  touch?: {
+    onKey: (key: string) => void;
+    onLunge: () => void;
+    /** Where the joystick writes its heading for the arena to read. */
+    stickRef: React.MutableRefObject<Stick>;
+  };
+  /** The panel's element, so the camera can measure it rather than guess. */
+  sectionRef?: React.Ref<HTMLElement>;
 }
 
 /** Your own puzzle, laid out like the original Wordle grid. Letters visible. */
@@ -29,6 +40,8 @@ export default function MyWordle({
   puzzleKey,
   handoffMs,
   lungeReady,
+  touch,
+  sectionRef,
 }: Props) {
   // Two ways a board can end, and they read differently. A guess ends it in the
   // line above the grid, where you are already looking. An eat ends it across
@@ -39,7 +52,7 @@ export default function MyWordle({
   const gridFx = handoff ? "handoff" : result ? (result.solved ? "pop" : "shake") : "";
 
   return (
-    <section className="mine">
+    <section className={`mine ${touch ? "touch" : ""}`} ref={sectionRef}>
       <div className="slot">
         {result && !handoff ? (
           <p className="reveal">
@@ -53,25 +66,42 @@ export default function MyWordle({
         )}
       </div>
 
-      <div className="stack" style={{ "--hold": `${handoffMs}ms` } as CSSProperties}>
-        <Grid key={puzzleKey} rows={rows} current={current} shake={shake} fx={gridFx} />
-        {handoff && (
-          <div className="handoff-answer">
-            {/* The word is being taken off you unsolved, so it has to be named
-                as a loss. Unlabelled it reads as a solve: green pulse, a word,
-                a score, and the mass actually came from the kill. */}
-            <span className="label">Your word was</span>
-            <span className="word">{handoff.word.toUpperCase()}</span>
-            <span className="points">+{handoff.points}</span>
-          </div>
+      <div className="deck">
+        {/* Left thumb steers, right thumb lunges, the grid between them. */}
+        {touch && <Joystick stickRef={touch.stickRef} />}
+        <div className="stack" style={{ "--hold": `${handoffMs}ms` } as CSSProperties}>
+          <Grid key={puzzleKey} rows={rows} current={current} shake={shake} fx={gridFx} />
+          {handoff && (
+            <div className="handoff-answer">
+              {/* The word is being taken off you unsolved, so it has to be named
+                  as a loss. Unlabelled it reads as a solve: green pulse, a word,
+                  a score, and the mass actually came from the kill. */}
+              <span className="label">Your word was</span>
+              <span className="word">{handoff.word.toUpperCase()}</span>
+              <span className="points">+{handoff.points}</span>
+            </div>
+          )}
+        </div>
+        {touch && (
+          <button
+            type="button"
+            className={`lunge ${lungeReady ? "ready" : ""}`}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              touch.onLunge();
+            }}
+          >
+            Lunge
+          </button>
         )}
       </div>
 
-      <Keyboard rows={rows} />
+      <Keyboard rows={rows} onKey={touch?.onKey} />
 
       {/* Whether space will do anything right now. One rule rather than a
-          meter: the only question is ready or not, and the wait is ~1s. */}
-      <div className={`charge ${lungeReady ? "ready" : ""}`} />
+          meter: the only question is ready or not, and the wait is ~1s. On
+          touch the lunge button carries this instead. */}
+      {!touch && <div className={`charge ${lungeReady ? "ready" : ""}`} />}
     </section>
   );
 }

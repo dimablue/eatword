@@ -229,6 +229,14 @@ wss.on("connection", (ws) => {
       // full of people sends you to watch.
       if (world.players.size < C.MAX_PLAYERS || dropOneBot(name)) {
         seatPlayer(ws, name);
+      } else if (spectators.size >= C.MAX_SPECTATORS) {
+        // Traffic spike, not a full arena: don't let the spectator queue grow
+        // without bound just because a link went wide.
+        send(ws, {
+          type: "denied",
+          message: "The arena is packed right now. Try again in a bit.",
+        });
+        ws.close();
       } else {
         spectators.add(ws);
         send(ws, {
@@ -318,36 +326,42 @@ setInterval(() => {
   // players do (solves, kills, deaths) but hold no socket, so the loop above
   // never reaches them and their arrays would grow for the life of the process.
   for (const p of world.players.values()) if (p.events.length) p.events = [];
-
-  // Spectators ride along on the leader's shoulder until a seat opens.
-  if (spectators.size) {
-    const lead = leaders[0] ? world.get(leaders[0].id) : null;
-    const camera = lead
-      ? { x: Math.round(lead.x), y: Math.round(lead.y) }
-      : { x: C.WORLD_SIZE / 2, y: C.WORLD_SIZE / 2 };
-    // Computed once: every spectator is watching the same board.
-    const letters = lead ? world.watchView(lead) : null;
-    for (const ws of spectators) {
-      if (ws.readyState !== ws.OPEN) continue;
-      const halfW = ((ws.view.w / ws.view.zoom) * C.VIEW_PAD) / 2;
-      const halfH = ((ws.view.h / ws.view.zoom) * C.VIEW_PAD) / 2;
-      send(ws, {
-        type: "state",
-        spectator: true,
-        you: null,
-        camera,
-        // The leader's own board carries its letters; every other board in the
-        // packet is the ordinary colours-only view.
-        players: world.near(camera, halfW, halfH).map((o) => {
-          const view = world.publicView(o);
-          return letters && o === lead ? { ...view, ...letters } : view;
-        }),
-        leaders,
-        events: [],
-      });
-    }
-  }
 }, 1000 / C.NET_HZ);
+
+// Spectators ride along on the leader's shoulder until a seat opens. Run on
+// its own, slower loop: a spectator queue can grow far larger than the arena
+// ever will (a shared link, not more players), and they're watching one
+// shared camera rather than steering a board, so they don't need player-rate
+// updates.
+setInterval(() => {
+  if (!spectators.size) return;
+  const leaders = world.leaderboard();
+  const lead = leaders[0] ? world.get(leaders[0].id) : null;
+  const camera = lead
+    ? { x: Math.round(lead.x), y: Math.round(lead.y) }
+    : { x: C.WORLD_SIZE / 2, y: C.WORLD_SIZE / 2 };
+  // Computed once: every spectator is watching the same board.
+  const letters = lead ? world.watchView(lead) : null;
+  for (const ws of spectators) {
+    if (ws.readyState !== ws.OPEN) continue;
+    const halfW = ((ws.view.w / ws.view.zoom) * C.VIEW_PAD) / 2;
+    const halfH = ((ws.view.h / ws.view.zoom) * C.VIEW_PAD) / 2;
+    send(ws, {
+      type: "state",
+      spectator: true,
+      you: null,
+      camera,
+      // The leader's own board carries its letters; every other board in the
+      // packet is the ordinary colours-only view.
+      players: world.near(camera, halfW, halfH).map((o) => {
+        const view = world.publicView(o);
+        return letters && o === lead ? { ...view, ...letters } : view;
+      }),
+      leaders,
+      events: [],
+    });
+  }
+}, 1000 / C.SPECTATOR_NET_HZ);
 
 function lanIp() {
   for (const list of Object.values(os.networkInterfaces())) {

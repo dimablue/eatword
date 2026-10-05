@@ -31,9 +31,11 @@ export function boardDims(tile: number) {
   return { gap, w: COLS * tile + (COLS - 1) * gap, h: ROWS * tile + (ROWS - 1) * gap };
 }
 
-/** Your board sits centred in the arena *above* the Wordle panel, never under it. */
-export function focusY(vh: number, panel: number) {
-  return (vh - Math.min(panel, vh * 0.4)) / 2;
+/** Your board sits centred in the arena *above* the Wordle panel, never under it.
+ *  `cap` is the most of the screen the panel may claim; a phone's panel carries
+ *  a full-size keyboard, so it is allowed more. */
+export function focusY(vh: number, panel: number, cap = 0.4) {
+  return (vh - Math.min(panel, vh * cap)) / 2;
 }
 
 /** How far out the camera sits at starting mass. Lower shows more arena. */
@@ -130,6 +132,44 @@ function drawBoard(ctx: CanvasRenderingContext2D, p: PublicPlayer, isMe: boolean
   ctx.fillText(String(p.mass), p.x, top - gap * 2 - 2 / zoom);
 }
 
+/**
+ * What an eat adds around your board: a green ring bursting outward from its
+ * edge and the mass you gained rising off it. Drawn unscaled by the gulp, so
+ * the ring leaves from where the board actually ends up.
+ */
+function drawGulp(ctx: CanvasRenderingContext2D, p: PublicPlayer, zoom: number, t: number, gain: number) {
+  const { gap, w, h } = boardDims(p.tile);
+  const out = 1 - Math.pow(1 - t, 3);
+
+  const spread = (40 / zoom + w * 0.35) * out;
+  ctx.globalAlpha = 1 - out;
+  ctx.strokeStyle = TILE_FILL.green;
+  ctx.lineWidth = (8 / zoom) * (1 - out) + 1 / zoom;
+  ctx.strokeRect(
+    p.x - w / 2 - gap - spread,
+    p.y - h / 2 - gap - spread,
+    w + (gap + spread) * 2,
+    h + (gap + spread) * 2
+  );
+
+  if (gain > 0) {
+    // In first, hold, then out: readable for most of the gulp.
+    ctx.globalAlpha = Math.min(1, t * 8) * Math.min(1, (1 - t) * 3);
+    const size = 30 / zoom;
+    ctx.font = `800 ${size}px ${FONT}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.lineWidth = 5 / zoom;
+    ctx.strokeStyle = PAPER;
+    ctx.lineJoin = "round";
+    const y = p.y - h / 2 - 48 / zoom - (60 / zoom) * out;
+    ctx.strokeText(`+${gain}`, p.x, y);
+    ctx.fillStyle = TILE_FILL.green;
+    ctx.fillText(`+${gain}`, p.x, y);
+  }
+  ctx.globalAlpha = 1;
+}
+
 export function render(
   ctx: CanvasRenderingContext2D,
   opts: {
@@ -142,18 +182,20 @@ export function render(
     myId: string | null;
     /** Height of the fixed Wordle panel; the camera focuses above it. */
     panel: number;
+    /** See focusY. */
+    panelCap?: number;
     /** End-of-puzzle flourish applied to your own board only. */
-    selfFx: { scale: number; shakeX: number };
+    selfFx: { scale: number; shakeX: number; gulp?: { t: number; gain: number } };
   }
 ) {
-  const { vw, vh, dpr, cam, world, players, myId, panel, selfFx } = opts;
+  const { vw, vh, dpr, cam, world, players, myId, panel, panelCap, selfFx } = opts;
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = PAPER;
   ctx.fillRect(0, 0, vw, vh);
 
   ctx.save();
-  ctx.translate(vw / 2, focusY(vh, panel));
+  ctx.translate(vw / 2, focusY(vh, panel, panelCap));
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
 
@@ -161,7 +203,7 @@ export function render(
 
   // Smallest first, so the board about to eat you is drawn on top.
   const ordered = [...players].sort((a, b) => a.mass - b.mass);
-  const hasFx = selfFx.scale !== 1 || selfFx.shakeX !== 0;
+  const hasFx = selfFx.scale !== 1 || selfFx.shakeX !== 0 || !!selfFx.gulp;
   for (const p of ordered) {
     const isMe = p.id === myId;
     if (isMe && hasFx) {
@@ -172,6 +214,7 @@ export function render(
       ctx.translate(-p.x, -p.y);
       drawBoard(ctx, p, isMe, cam.zoom);
       ctx.restore();
+      if (selfFx.gulp) drawGulp(ctx, p, cam.zoom, selfFx.gulp.t, selfFx.gulp.gain);
     } else {
       drawBoard(ctx, p, isMe, cam.zoom);
     }

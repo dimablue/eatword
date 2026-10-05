@@ -419,6 +419,13 @@ input:focus {
   background: var(--muted);
 }
 
+/* The grid's row. On desktop it holds only the grid; on touch the joystick
+   and the lunge button flank it. */
+.deck {
+  display: flex;
+  justify-content: center;
+}
+
 /* Fixed-height slot so the reveal can't shove the grid around. */
 .slot {
   height: 26px;
@@ -487,7 +494,7 @@ input:focus {
 }
 
 .grid.handoff {
-  animation: handoff-out var(--hold, 700ms) ease-out forwards;
+  animation: handoff-out var(--hold, 1100ms) ease-out forwards;
 }
 
 /* Success, then a plateau, then exit, as one animation, because they are one
@@ -536,7 +543,7 @@ input:focus {
      it are exactly the noise that makes it unreadable in a 450ms glance. */
   background: rgba(246, 246, 244, 0.96);
   pointer-events: none;
-  animation: handoff-answer var(--hold, 700ms) ease-out forwards;
+  animation: handoff-answer var(--hold, 1100ms) ease-out forwards;
 }
 
 /* Muted, and above the word rather than beside it: this pair is the board you
@@ -673,4 +680,225 @@ input:focus {
     height: 19px;
     font-size: 9px;
   }
+}
+
+/* ---------- touch ---------- */
+/* Everything below applies only to touch-first devices (pointer: coarse,
+   detected in touch.ts), where there is no mouse to steer and no keyboard to
+   type on. Desktop never gets the .touch class, so none of this reaches it. */
+.game.touch {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A fixed ring with a knob dragged inside it. The ring is the whole touch
+   target, so a thumb that lands near the knob rather than on it still steers. */
+.stick {
+  justify-self: center;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  border: 2px solid rgba(26, 26, 27, 0.16);
+  background: rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.stick-knob {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(26, 26, 27, 0.5);
+  pointer-events: none;
+  /* Springs home on release; while held it tracks the thumb exactly. */
+  transition: transform 120ms ease-out, background-color 120ms ease-out;
+}
+
+.stick.held .stick-knob {
+  background: var(--ink);
+  transition: none;
+}
+
+/* The panel spans the screen on touch. It stays click-through, so a thumb on
+   the grid or between keys still lands on the arena and steers; only the keys
+   and the lunge button take taps. */
+.mine.touch {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  transform: none;
+  padding: 0 6px calc(8px + env(safe-area-inset-bottom));
+  gap: 8px;
+}
+
+.mine.touch .deck {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+
+.mine.touch .tile {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+}
+
+/* A round target the size of a thumb, mirroring the joystick. Faint while the
+   lunge recharges, solid the moment it will do something, the same rule the
+   desktop charge line follows. */
+.mine.touch .lunge {
+  justify-self: center;
+  pointer-events: auto;
+  touch-action: none;
+  width: 76px;
+  height: 76px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  transition: background-color 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.mine.touch .lunge.ready {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.mine.touch .lunge.ready:active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Full width, keys sized to a fingertip. The letters keep Wordle's
+   staggered rows; Backspace and Enter stack in their own column to the right,
+   which costs each letter a little width. */
+.keyboard.tappable {
+  width: 100%;
+  max-width: 500px;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.keyboard.tappable .letters {
+  flex: 10 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.keyboard.tappable .krow {
+  gap: 4px;
+}
+
+.keyboard.tappable .key {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  height: 50px;
+  font-size: 16px;
+  border-radius: 4px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.keyboard.tappable .kspacer.s1 {
+  flex: 0.5 1 0;
+}
+
+.keyboard.tappable .kspacer.s2 {
+  flex: 1.5 1 0;
+}
+
+.keyboard.tappable .actions {
+  flex: 1.6 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* One row tall, like the letters beside it. */
+.keyboard.tappable .key.back {
+  flex: none;
+  font-size: 18px;
+}
+
+/* The other two rows, gap included. */
+.keyboard.tappable .key.enter {
+  flex: 1 1 auto;
+  height: auto;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.keyboard.tappable .key.down {
+  filter: brightness(0.85);
+}
+
+/* Short phones and landscape: give the arena back some height. */
+@media (max-height: 700px) {
+  .keyboard.tappable .key:not(.enter) {
+    height: 42px;
+  }
+
+  .mine.touch .tile {
+    width: 24px;
+    height: 24px;
+    font-size: 13px;
+  }
+
+  .mine.touch .lunge {
+    width: 64px;
+    height: 64px;
+  }
+
+  .stick {
+    width: 88px;
+    height: 88px;
+  }
+}
+
+/* The leaderboard and notice share the top edge of a narrow screen, so both
+   tighten up rather than run into each other. */
+.game.touch .leaderboard {
+  top: calc(10px + env(safe-area-inset-top));
+  right: 12px;
+  font-size: 11px;
+}
+
+.game.touch .leaderboard li {
+  grid-template-columns: 12px 1fr 34px;
+  gap: 6px;
+}
+
+.game.touch .notice {
+  top: calc(10px + env(safe-area-inset-top));
+  left: 12px;
+  max-width: calc(100% - 180px);
+  min-width: 170px;
+  font-size: 12px;
+}
+
+.game.touch .notice .dismiss {
+  padding: 4px 6px;
+  margin: -6px -8px 0 0;
+  font-size: 20px;
+}
+
+.game.touch button:hover {
+  background: transparent;
+  color: var(--ink);
 }

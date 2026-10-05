@@ -1,9 +1,11 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import Arena, { type Fx, type Snapshot } from "./Arena";
 import Grid from "./Grid";
+import type { Stick } from "./Joystick";
 import Leaderboard from "./Leaderboard";
 import MyWordle from "./MyWordle";
 import { Net } from "./net";
+import { useTouch } from "./touch";
 import type {
   FinalBoard,
   GameEvent,
@@ -22,9 +24,31 @@ type Death = { by: string; mass: number } & FinalBoard;
  *  under it. Measured in the browser, not derived: 287 at the time of writing. */
 const PANEL_HEIGHT = 287;
 
+/** On touch, the camera pulls back this much further than on desktop: a phone
+ *  shows a fraction of a monitor's arena at the same zoom, too little to see
+ *  anyone coming. */
+const TOUCH_ZOOM = 0.6;
+/** The touch panel carries a full-size keyboard, so it may take more of the
+ *  screen before the camera stops making room for it. See focusY. */
+const TOUCH_PANEL_CAP = 0.55;
+
 type Phase = "name" | "playing";
 
 export default function App() {
+  const touch = useTouch();
+  const stickRef = useRef<Stick>({ dx: 0, dy: 0 });
+  /** The touch panel's real height. Its keys are sized off the screen width, so
+   *  unlike the desktop panel it has no single height to measure up front. */
+  const [touchPanel, setTouchPanel] = useState(0);
+  const panelObserver = useRef<ResizeObserver | null>(null);
+  const measurePanel = useCallback((el: HTMLElement | null) => {
+    panelObserver.current?.disconnect();
+    panelObserver.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setTouchPanel(el.offsetHeight));
+    ro.observe(el);
+    panelObserver.current = ro;
+  }, []);
   const [phase, setPhase] = useState<Phase>("name");
   const [name, setName] = useState("");
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting");
@@ -57,7 +81,7 @@ export default function App() {
   const fxRef = useRef<Fx | null>(null);
   const lastPuzzleId = useRef<number | null>(null);
   const holdMs = useRef(850);
-  const handoffMs = useRef(700);
+  const handoffMs = useRef(1100);
   const resultTimer = useRef(0);
   const noticeTimer = useRef(0);
   const wasDone = useRef(false);
@@ -83,7 +107,9 @@ export default function App() {
   const showNotice = useCallback((text: string, sticky = false) => {
     const ms = sticky ? 0 : Math.min(10000, 2000 + text.split(/\s+/).length * 400);
     window.clearTimeout(noticeTimer.current);
-    setNotice({ text, ms });
+    // Same text keeps the same object, so holding down a wrong-alphabet key
+    // refreshes the countdown instead of re-rendering on every keystroke.
+    setNotice((n) => (n && n.text === text && n.ms === ms ? n : { text, ms }));
     if (ms) noticeTimer.current = window.setTimeout(() => setNotice(null), ms);
   }, []);
 
@@ -117,11 +143,15 @@ export default function App() {
             (e.handoff ? handoffMs.current : holdMs.current) + 600
           );
           break;
-        // "ate" and "stole" are deliberately not surfaced. The handoff shows
-        // the mass a kill paid, in the middle of the screen, and the inherited
-        // board arrives full of someone else's guesses. Both are already said
-        // better than a line of text in the corner could say them. The server
-        // still sends both events; they are the record of what happened.
+        case "ate":
+          // No text for this: the handoff already shows what the kill paid.
+          // The arena gets the gulp instead, which replaces the result's pop
+          // (the server sends "result" first) so growth is the thing you feel.
+          fxRef.current = { kind: "gulp", at: performance.now(), gain: e.gain };
+          break;
+        // "stole" is deliberately not surfaced. The inherited board arrives
+        // full of someone else's guesses, which says it better than a line of
+        // text in the corner could. The server still sends it for the record.
         case "decay":
           // Said once per life, and the only rule nothing on screen explains.
           // It bleeds *back down to* the threshold rather than eroding you
@@ -233,6 +263,49 @@ export default function App() {
     setPhase("playing");
   };
 
+  /**
+   * One keystroke, from either the physical keyboard or the on-screen one, so
+   * the two can never disagree about what a key does. `key` is a lowercase
+   * letter, "Enter", "Backspace" or " " (lunge).
+   */
+  const press = useCallback(
+    (key: string, repeat = false) => {
+      if (spectator) return;
+      if (death) {
+        if (key === "Enter") netRef.current?.send({ type: "respawn" });
+        return;
+      }
+      // Above the reveal check on purpose: the lunge is movement, and movement
+      // is never frozen. It stays live through the handoff, when typing is not.
+      if (key === " ") {
+        if (!repeat) netRef.current?.send({ type: "lunge" });
+        return;
+      }
+      // The reveal is brief and non-blocking; movement continues, typing waits.
+      if (result) return;
+      if (key === "Enter") {
+        if (guessRef.current.length === 5) {
+          netRef.current?.send({ type: "guess", guess: guessRef.current });
+          setBuffer("");
+        } else {
+          setShake((s) => s + 1);
+          window.setTimeout(() => setShake(0), 400);
+          setMessage("Not enough letters");
+          window.setTimeout(() => setMessage(""), 1200);
+        }
+        return;
+      }
+      if (key === "Backspace") {
+        setBuffer(guessRef.current.slice(0, -1));
+        return;
+      }
+      if (/^[a-z]$/.test(key) && guessRef.current.length < 5) {
+        setBuffer(guessRef.current + key);
+      }
+    },
+    [death, result, spectator, setBuffer]
+  );
+
   // Typing drives guesses; the mouse drives movement, so they never collide.
   useEffect(() => {
     if (phase !== "playing") return;
@@ -253,42 +326,20 @@ export default function App() {
         dismissNotice();
         return;
       }
-      if (death) {
-        if (e.key === "Enter") netRef.current?.send({ type: "respawn" });
+      if (e.key === " ") e.preventDefault(); // space scrolls the page otherwise
+      // A letter from another alphabet is a keyboard layout, not a typo: the
+      // word list is a-z only, so the keystroke can never land. Silently
+      // dropping it looks like the game has frozen. Tested for being a letter
+      // rather than just non-Latin, so digits and punctuation stay quiet.
+      if (!death && !result && e.key.length === 1 && /\p{L}/u.test(e.key) && !/[a-zA-Z]/.test(e.key)) {
+        showNotice("Use an English keyboard.");
         return;
       }
-      // Above the reveal check on purpose: the lunge is movement, and movement
-      // is never frozen. It stays live through the handoff, when typing is not.
-      if (e.key === " ") {
-        e.preventDefault(); // space scrolls the page otherwise
-        if (!e.repeat) netRef.current?.send({ type: "lunge" });
-        return;
-      }
-      // The reveal is brief and non-blocking; movement continues, typing waits.
-      if (result) return;
-      if (e.key === "Enter") {
-        if (guessRef.current.length === 5) {
-          netRef.current?.send({ type: "guess", guess: guessRef.current });
-          setBuffer("");
-        } else {
-          setShake((s) => s + 1);
-          window.setTimeout(() => setShake(0), 400);
-          setMessage("Not enough letters");
-          window.setTimeout(() => setMessage(""), 1200);
-        }
-        return;
-      }
-      if (e.key === "Backspace") {
-        setBuffer(guessRef.current.slice(0, -1));
-        return;
-      }
-      if (/^[a-zA-Z]$/.test(e.key) && guessRef.current.length < 5) {
-        setBuffer(guessRef.current + e.key.toLowerCase());
-      }
+      press(e.key.length === 1 ? e.key.toLowerCase() : e.key, e.repeat);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [phase, death, result, spectator, setBuffer, dismissNotice]);
+  }, [phase, death, result, spectator, press, dismissNotice, showNotice]);
 
   const sendInput = useCallback((dx: number, dy: number, w: number, h: number, zoom: number) => {
     netRef.current?.send({ type: "input", dx, dy, w, h, zoom });
@@ -306,7 +357,11 @@ export default function App() {
           left off. Every puzzle you solve and every board you eat makes you
           bigger.
         </p>
-        <p className="controls">Mouse to move, type to guess, space to lunge.</p>
+        <p className="controls">
+          {touch
+            ? "Drag the stick to move, tap the keys to guess, tap Lunge to lunge."
+            : "Mouse to move, type to guess, space to lunge."}
+        </p>
         <div className="entry-row">
           <input
             autoFocus
@@ -327,13 +382,16 @@ export default function App() {
   }
 
   return (
-    <div className="game">
+    <div className={`game ${touch ? "touch" : ""}`}>
       {/* No panel while spectating, so the camera centres the whole viewport. */}
       <Arena
         snapshotRef={snapshotRef}
-        panel={spectator ? 0 : PANEL_HEIGHT}
+        panel={spectator ? 0 : touch ? touchPanel : PANEL_HEIGHT}
         fxRef={fxRef}
         onInput={sendInput}
+        stickRef={touch ? stickRef : undefined}
+        zoomScale={touch ? TOUCH_ZOOM : 1}
+        panelCap={touch ? TOUCH_PANEL_CAP : undefined}
       />
 
       <Leaderboard leaders={leaders} myId={snapshotRef.current.myId} />
@@ -364,6 +422,8 @@ export default function App() {
           puzzleKey={puzzleKey}
           handoffMs={handoffMs.current}
           lungeReady={you?.lungeReady ?? true}
+          touch={touch ? { onKey: press, onLunge: () => press(" "), stickRef } : undefined}
+          sectionRef={touch ? measurePanel : undefined}
         />
       )}
 

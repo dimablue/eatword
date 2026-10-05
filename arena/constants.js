@@ -14,6 +14,20 @@ module.exports = {
   // Bots give up their slot to arriving humans; humans past the cap spectate.
   MAX_PLAYERS: 50,
 
+  // Ceiling on queued spectators. The sim itself is capped by MAX_PLAYERS and
+  // stays cheap regardless of traffic, but every spectator socket gets its own
+  // serialized packet at SPECTATOR_NET_HZ, so an uncapped queue is the one way
+  // a traffic spike (not a big arena) could still bog the server down. Past
+  // this many waiting, new arrivals are turned away with "denied" rather than
+  // queued forever behind a full arena.
+  MAX_SPECTATORS: 200,
+
+  // Spectators watch one shared camera, not their own board, so they don't
+  // need player-rate updates. Broadcasting them separately at this lower rate
+  // keeps a large spectator queue from costing anywhere near what the same
+  // number of players would.
+  SPECTATOR_NET_HZ: 4,
+
   // Playtest shortcut: join under this name and you spawn at DEV_MASS instead of
   // START_MASS, so the hunting half of the game can be tried without grinding up
   // to it first. Respawns keep it too. Names are not unique or authenticated, so
@@ -51,8 +65,21 @@ module.exports = {
 
   // You can eat someone only if you outweigh them by this factor...
   EAT_MASS_RATIO: 1.2,
-  // ...and your circle covers this much of theirs.
-  EAT_OVERLAP: 0.4,
+  // ...and their centre is inside your circle: dist <= ra - rb * EAT_OVERLAP.
+  //
+  // This is 0, not the 0.4 it used to be, and the reason is latency rather than
+  // taste. The client draws remote boards about 90ms in the past (see the
+  // render delay in Arena.tsx) while drawing your own predicted at now, so a
+  // board's true position trails what you see by that delay plus one-way ping.
+  // At 80ms that is 51px of drift at spawn size, and 95px while lunging, when
+  // 0.4 left an eat distance of only 68px. The whole window fitted inside the
+  // error: boards looked fully covered and could not be eaten. It never showed
+  // up locally, where the drift is 27px.
+  //
+  // At 0 the rule is simply "their centre is inside your circle", which is both
+  // what a player means by being on top of someone and wide enough (108px) to
+  // survive a real connection. Raising it again re-introduces the bug.
+  EAT_OVERLAP: 0,
   EAT_GAIN: 0.7,
 
   // Points for a solve, indexed by guesses used: 1 guess -> +52, ... 6 guesses -> +22.
@@ -69,16 +96,18 @@ module.exports = {
   // puzzle loads. Held on the server so onlookers see your final board too.
   RESULT_HOLD_MS: 850,
 
-  // The same hold, but for the board an eat resolves. Shorter than a solve's:
-  // you are mid-fight, still moving, and the board you just inherited is the
-  // half worth looking at. The client's exit animation runs for exactly this
-  // long, so the two land together. Change one and the swap will visibly
-  // outrun the other.
+  // The same hold, but for the board an eat resolves. The client's exit
+  // animation runs for exactly this long, so the two land together. Change one
+  // and the swap will visibly outrun the other.
   //
   // Only about two thirds of it is legible; the rest is the reveal fading in
   // and the board leaving. Three lines of text need most of that plateau, so
-  // this cannot go much below 600 without the answer becoming unreadable.
-  HANDOFF_HOLD_MS: 700,
+  // this cannot go much below 600 without the answer becoming unreadable. It
+  // sits above a solve's hold rather than below it: at 700 the word you just
+  // lost went by before you could read it, and reading it is the whole point
+  // of showing it. The cost is that typing pauses for longer mid-fight, which
+  // is survivable because movement never stops during the hold.
+  HANDOFF_HOLD_MS: 1100,
 
   // --- lunge ---
   // The one answer to a problem the speed curve cannot solve: eating requires

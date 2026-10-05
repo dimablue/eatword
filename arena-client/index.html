@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- No pinch or double-tap zoom: on a phone every tap is a keypress or a
+         steer, and a zoomed page would put the controls off screen. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Eatword</title>
     <!-- The typeface is self-hosted; see the @font-face rules in styles.css.
          No third-party font request, so the game looks right offline. -->

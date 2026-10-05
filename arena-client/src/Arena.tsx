@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { boardDims, focusY, render, zoomForMass, type Camera } from "./draw";
+import type { Stick } from "./Joystick";
 import type { PublicPlayer, You } from "./types";
 
 export interface Snapshot {
@@ -13,10 +14,12 @@ export interface Snapshot {
   at: number;
 }
 
-/** A one-shot flourish on your own board when a puzzle ends. */
+/** A one-shot flourish on your own board when a puzzle ends or you eat. */
 export interface Fx {
-  kind: "pop" | "shake";
+  kind: "pop" | "shake" | "gulp";
   at: number;
+  /** Mass an eat paid, floated above the board during a gulp. */
+  gain?: number;
 }
 
 interface Props {
@@ -25,6 +28,13 @@ interface Props {
   panel: number;
   fxRef: React.MutableRefObject<Fx | null>;
   onInput: (dx: number, dy: number, w: number, h: number, zoom: number) => void;
+  /** Set on touch devices: steer from the joystick instead of the pointer. */
+  stickRef?: React.MutableRefObject<Stick>;
+  /** Multiplies the camera's zoom. Below 1 pulls back to show more arena,
+   *  which a phone needs since its screen holds a fraction of a monitor's. */
+  zoomScale?: number;
+  /** See focusY. */
+  panelCap?: number;
 }
 
 interface Drawn extends PublicPlayer {
@@ -35,6 +45,18 @@ interface Drawn extends PublicPlayer {
 }
 
 const FX_MS = 420;
+/**
+ * An eat runs longer than a solve's pop. It has to carry the growth itself:
+ * the camera zooms out as you gain mass, which on its own cancels most of the
+ * growth on screen (a spawn eating a spawn is +23% in the world, ~+10% seen).
+ */
+const GULP_MS = 900;
+/** The camera holds its zoom this long after an eat, so the board is seen to
+ *  swell against a fixed view before the view pulls back to fit it. */
+const GULP_ZOOM_HOLD_MS = 1300;
+/** Zoom-out after that hold is slow, so it reads as the camera making room
+ *  rather than the board shrinking back. */
+const GULP_ZOOM_RATE = 0.9;
 
 /** A board's position at one server instant. */
 interface Sample {
@@ -133,7 +155,15 @@ export function sampleAt(buf: Sample[] | undefined, t: number, fallback: { x: nu
  * The arena canvas. State arrives at 15Hz; positions are eased toward their
  * targets every frame so movement reads as continuous.
  */
-export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
+export default function Arena({
+  snapshotRef,
+  panel,
+  fxRef,
+  onInput,
+  stickRef,
+  zoomScale = 1,
+  panelCap,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pointer = useRef({ x: 0, y: 0, active: false });
   const drawn = useRef(new Map<string, Drawn>());
@@ -141,10 +171,13 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
   const input = useRef({ dx: 0, dy: 0, zoom: 1 });
   const panelRef = useRef(panel);
   panelRef.current = panel;
+  const opts = useRef({ stickRef, zoomScale, panelCap });
+  opts.current = { stickRef, zoomScale, panelCap };
   const tracks = useRef(new Map<string, Sample[]>());
   const self = useRef({ x: 0, y: 0, ox: 0, oy: 0, at: 0, ok: false });
   const lastAt = useRef(0);
   const interval = useRef(0);
+  const lastGulp = useRef(-Infinity);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
@@ -197,6 +230,8 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
       const delay = Math.min(220, Math.max(60, (interval.current || 1000 / 15) * 1.8));
       const renderT = now - delay;
 
+      const gulping = fxRef.current?.kind === "gulp";
+      if (gulping) lastGulp.current = fxRef.current!.at;
       const kTile = 1 - Math.exp(-6 * dt);
       const seen = new Set<string>();
       for (const p of snap.players) {
@@ -217,7 +252,10 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
           d.dx = at.x;
           d.dy = at.y;
           // Size still eases, so growing reads as growth rather than a jump.
-          d.dtile = prevTile + (p.tile - prevTile) * kTile;
+          // Your own board snaps to its new size during a gulp, so the growth
+          // lands in one beat under the overshoot instead of creeping in.
+          const k = gulping && p.id === snap.myId ? 1 - Math.exp(-18 * dt) : kTile;
+          d.dtile = prevTile + (p.tile - prevTile) * k;
         }
       }
       for (const id of [...drawn.current.keys()]) {
@@ -227,12 +265,13 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
         }
       }
 
+      const { stickRef: stick, zoomScale: zs, panelCap: cap } = opts.current;
       const me = snap.myId ? drawn.current.get(snap.myId) : undefined;
       // Follow your own board, or the server's anchor while spectating.
       const focus = me
-        ? { x: me.dx, y: me.dy, zoom: zoomForMass(me.mass) }
+        ? { x: me.dx, y: me.dy, zoom: zoomForMass(me.mass) * zs }
         : snap.camera
-          ? { x: snap.camera.x, y: snap.camera.y, zoom: 0.5 }
+          ? { x: snap.camera.x, y: snap.camera.y, zoom: 0.5 * zs }
           : null;
       if (focus) {
         // The camera still eases: it is chasing a target that is already smooth,
@@ -241,14 +280,25 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
         const kCam = 1 - Math.exp(-14 * dt);
         cam.current.x += (focus.x - cam.current.x) * kCam;
         cam.current.y += (focus.y - cam.current.y) * kCam;
-        cam.current.zoom += (focus.zoom - cam.current.zoom) * (1 - Math.exp(-3 * dt));
+        const sinceGulp = now - lastGulp.current;
+        const zoomRate =
+          focus.zoom < cam.current.zoom && sinceGulp < GULP_ZOOM_HOLD_MS * 3
+            ? sinceGulp < GULP_ZOOM_HOLD_MS
+              ? 0
+              : GULP_ZOOM_RATE
+            : 3;
+        cam.current.zoom += (focus.zoom - cam.current.zoom) * (1 - Math.exp(-zoomRate * dt));
       }
       input.current.zoom = cam.current.zoom;
 
-      // Direction is the pointer's offset from your board on screen, capped at one.
-      if (pointer.current.active) {
+      // Direction is the pointer's offset from your board on screen, capped at
+      // one. On touch the joystick has already worked it out.
+      if (stick) {
+        input.current.dx = stick.current.dx;
+        input.current.dy = stick.current.dy;
+      } else if (pointer.current.active) {
         const ox = pointer.current.x - vw / 2;
-        const oy = pointer.current.y - focusY(vh, panelRef.current);
+        const oy = pointer.current.y - focusY(vh, panelRef.current, cap);
         const mag = Math.hypot(ox, oy);
         const dead = 24;
         if (mag < dead) {
@@ -261,15 +311,22 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
         }
       }
 
-      // A solve swells the board, a miss rattles it. Both decay to nothing.
+      // A solve swells the board, a miss rattles it, an eat gulps. All decay
+      // to nothing.
       let fxScale = 1;
       let fxShake = 0;
+      let gulp: { t: number; gain: number } | undefined;
       const fx = fxRef.current;
       if (fx) {
-        const t = (now - fx.at) / FX_MS;
+        const t = (now - fx.at) / (fx.kind === "gulp" ? GULP_MS : FX_MS);
         if (t >= 1) fxRef.current = null;
         else if (fx.kind === "pop") fxScale = 1 + 0.16 * Math.sin(Math.PI * t);
-        else fxShake = Math.sin(t * Math.PI * 8) * 14 * (1 - t);
+        else if (fx.kind === "gulp") {
+          // A damped spring: a big overshoot, a small rebound under, settle.
+          // Ends at exactly 1 (sin(3π) = 0), so there is no pop at the end.
+          fxScale = 1 + 0.5 * Math.exp(-4 * t) * Math.sin(3 * Math.PI * t);
+          gulp = { t, gain: fx.gain ?? 0 };
+        } else fxShake = Math.sin(t * Math.PI * 8) * 14 * (1 - t);
       }
 
       const players = [...drawn.current.values()].map((d) => ({
@@ -287,7 +344,8 @@ export default function Arena({ snapshotRef, panel, fxRef, onInput }: Props) {
         players,
         myId: snap.myId,
         panel: panelRef.current,
-        selfFx: { scale: fxScale, shakeX: fxShake },
+        panelCap: cap,
+        selfFx: { scale: fxScale, shakeX: fxShake, gulp },
       });
 
       raf = requestAnimationFrame(frame);

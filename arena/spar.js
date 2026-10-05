@@ -8,11 +8,11 @@
 // A fleeing bot is uncatchable by design. What you need is someone who holds
 // still, or someone who comes to you.
 //
-//   npm run spar                 a sitting duck, part-way through a board
-//   npm run spar -- --hunt       a hunter that comes and eats you
-//   npm run spar -- -n 3         three ducks
-//   npm run spar -- --target ada pick who the hunter chases
-//   npm run spar -- --port 3002
+//   npm run arena:spar                 a sitting duck, part-way through a board
+//   npm run arena:spar -- --hunt       a hunter that comes and eats you
+//   npm run arena:spar -- -n 3         three ducks
+//   npm run arena:spar -- --target ada pick who the hunter chases
+//   npm run arena:spar -- --port 3002
 //
 // Ctrl-C to leave. Everyone it spawns respawns on their own after being eaten,
 // so one process lasts a whole session of iterating.
@@ -55,7 +55,7 @@ function spar(name, { hunt }) {
 
   ws.on("open", () => ws.send(JSON.stringify({ type: "join", name })));
   ws.on("error", (e) => {
-    console.error(`\n  cannot reach the arena on :${PORT}. Is \`npm start\` running?`);
+    console.error(`\n  cannot reach the arena on :${PORT}. Is \`npm run arena\` running?`);
     console.error(`  ${e.message}\n`);
     process.exit(1);
   });
@@ -165,7 +165,7 @@ function spar(name, { hunt }) {
   });
 }
 
-console.log(`\n  spar -> ws://localhost:${PORT}\n`);
+console.log(`\n  arena:spar -> ws://localhost:${PORT}\n`);
 
 if (HUNT) {
   // Mass is the server's to hand out, and DEV_NAME is the only lever a client
